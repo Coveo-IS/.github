@@ -6,13 +6,19 @@ Reusable workflow reference:
 
 ## Purpose
 
-- Run Terragrunt with AWS OIDC credentials.
-- Create and upload a plan artifact.
-- Optionally apply the generated plan.
+- Assume an AWS role through GitHub OIDC.
+- Run `terragrunt init` and `terragrunt plan` in a target directory.
+- Optionally run `terragrunt apply` against the saved `tgplan` file.
+- Upload both `tgplan` and `plan.txt` as a short-lived artifact.
+
+## Trigger
+
+This workflow is reusable only (`on: workflow_call`).
+Caller workflows decide when it runs (for example `pull_request`, `push`, or `workflow_dispatch`).
 
 ## Quick Start
 
-Plan only caller example:
+Plan-only caller example:
 
 ```yaml
 name: Infra Plan (Dev)
@@ -37,7 +43,7 @@ jobs:
       apply_plan: false
 ```
 
-Apply caller example (manual):
+Apply caller example:
 
 ```yaml
 name: Infra Apply (Dev)
@@ -67,48 +73,48 @@ jobs:
 | `working_directory` | yes | string | none | Directory where Terragrunt commands run. |
 | `aws_region` | no | string | `us-east-1` | AWS region for the assumed role session. |
 | `aws_role_arn` | yes | string | none | IAM role ARN assumed through OIDC. |
-| `timeout_minutes` | no | number | `5` | Workflow job timeout in minutes. |
-| `apply_plan` | no | boolean | `false` | When true, runs `terragrunt apply` on the saved plan. |
+| `timeout_minutes` | no | number | `5` | Job timeout in minutes. |
+| `apply_plan` | no | boolean | `false` | When true, runs `terragrunt apply -auto-approve tgplan`. |
 
 ## Outputs
 
 | Output | Description |
 |---|---|
-| `terra_plan_artifact_url` | URL of the uploaded plan artifact from the reusable workflow run. |
+| `terra_plan_artifact_url` | Artifact URL returned by `actions/upload-artifact` for the uploaded `tgplan` package. |
 
-## Behavior Notes
+## Runtime Behavior
 
-- `apply_plan: false` runs plan only.
-- `apply_plan: true` runs plan then apply using the generated plan file.
-- Plan output is streamed to the Actions log and also saved in `plan.txt`.
-- Plan artifact retention is currently set to `1` day.
-- Concurrency group is based on workflow, branch, and working directory.
+- `run-name` is dynamic: `Terragrunt plan|apply * <working_directory> * <branch>`.
+- Concurrency group includes workflow name, branch, and working directory.
+- `cancel-in-progress` is enabled for plan runs and disabled for apply runs.
+- AWS credentials are configured with `aws-actions/configure-aws-credentials` (OIDC).
+- Tooling is installed at runtime:
+  - OpenTofu `1.12.5` (checksum and signature verified)
+  - Terragrunt `1.1.1` (checksum verified)
+- The workflow verifies identity with `aws sts get-caller-identity` before Terragrunt commands.
+- Plan step writes console output to `plan.txt` and plan binary to `tgplan`.
+- Upload step keeps artifacts for `1` day.
 
-## Approval Gates
+## Required Caller Permissions
 
-Approval gates are configured in caller workflows via GitHub Environments.
+Set these permissions in caller workflows:
 
-High-level flow:
-
-1. Configure required reviewers in repository settings under Environments.
-2. Put apply in a dedicated caller job.
-3. Set `environment: <name>` on that apply job.
-
-Note: native environment approvals are reviewer-based allow-lists, not strict multi-approval counts.
-If you need true N-of-M approvals, use custom protection rules or an approval action that supports
-minimum approval counts.
+```yaml
+permissions:
+  contents: read
+  id-token: write
+```
 
 ## Security Notes
 
-- Keep caller workflow permissions minimal (`id-token: write`, `contents: read`).
-- Prefer pinning reusable workflow references to a tag or commit SHA for change control.
-- OpenTofu checksum/signature verification is present.
-- Terragrunt is checksum-verified; consider full signature verification in future hardening.
+- Prefer pinning reusable workflow references to a tag or commit SHA in callers.
+- Ensure the IAM role trust policy restricts allowed GitHub OIDC subjects (repo/ref/environment).
+- If stronger supply-chain guarantees are required, add signature verification for Terragrunt releases.
 
 ## Troubleshooting
 
-- OIDC assume-role fails. Confirm caller has `id-token: write` and IAM trust policy allows the GitHub OIDC subject for your repo/ref.
-- Terragrunt cannot find files. Verify `working_directory` points to the correct stack path.
-- Apply is not running. Verify `apply_plan: true` is passed by the caller.
-- Run waits unexpectedly. Check concurrency group collisions with another in-progress run.
-- Missing artifact. Check whether the plan step failed before artifact upload.
+- OIDC assume-role fails: confirm caller has `id-token: write` and IAM trust policy matches your repo/ref.
+- Terragrunt cannot find files: verify `working_directory` path in the caller.
+- Apply does not run: verify caller passes `apply_plan: true`.
+- Runs are cancelled unexpectedly: expected for plan runs due to concurrency cancellation.
+- Artifact URL is empty: check whether `Upload plan` executed successfully.
