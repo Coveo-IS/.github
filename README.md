@@ -21,4 +21,4 @@ Reusable workflow reference:
 
 Documentation:
 
-- Workflow guide: [workflows/aws_oidc_terraform.README.md](workflows/aws_oidc_terraform.README.md)
+- Workflow guide: [.github/workflows/aws_oidc_terraform.README.md](.github/workflows/aws_oidc_terraform.README.md)
