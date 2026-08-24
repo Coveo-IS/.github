@@ -118,9 +118,9 @@ jobs:
 
       - name: Terragrunt Plan
         id: tgplan
-run: |
-  set -euo pipefail
-  terragrunt plan -no-color -out=tgplan 2>&1 | tee plan.txt
+        run: |
+          set -euo pipefail
+          terragrunt plan -no-color -out=tgplan 2>&1 | tee plan.txt
         working-directory: ${{ inputs.working_directory }}
 
       - name: Terragrunt Apply
