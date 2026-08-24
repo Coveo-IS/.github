@@ -7,7 +7,7 @@ run-name: >-
 
 concurrency:
   group: >-
-    terragrunt-${{ github.workflow }}-${{ github.ref_name }}-${{ inputs.working_directory }}
+    terragrunt-${{ github.workflow }}-${{ github.ref_name }}-${{ inputs.working_directory }}-${{ inputs.apply_plan && 'apply' || 'plan' }}
   cancel-in-progress: ${{ !inputs.apply_plan }}
 
 defaults:
@@ -27,7 +27,7 @@ on:
         description: "AWS region for the assumed role session"
         type: string
       aws_role_arn:
-        description: "The role terraform will use to deploy your resource"
+        description: "The role Terragrunt/OpenTofu will use to deploy your resources"
         required: true
         type: string
       timeout_minutes:
@@ -118,8 +118,9 @@ jobs:
 
       - name: Terragrunt Plan
         id: tgplan
-        run: |
-          terragrunt plan -no-color -out=tgplan 2>&1 | tee plan.txt
+run: |
+  set -euo pipefail
+  terragrunt plan -no-color -out=tgplan 2>&1 | tee plan.txt
         working-directory: ${{ inputs.working_directory }}
 
       - name: Terragrunt Apply
