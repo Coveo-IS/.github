@@ -29,6 +29,7 @@ on:
       - infra/dev/**
 
 permissions:
+  actions: read
   contents: read
   id-token: write
 
