@@ -161,7 +161,8 @@ jobs:
         if: ${{ inputs.mode == 'plan' }}
         run: |
           set -euo pipefail
-          terragrunt plan -no-color -out=tgplan 2>&1 | tee plan.txt
+          plan_path="$(pwd)/tgplan"
+          terragrunt plan -no-color -out="$plan_path" 2>&1 | tee plan.txt
         working-directory: ${{ inputs.working_directory }}
 
       - name: Parse plan artifact URL
@@ -220,8 +221,15 @@ jobs:
       - name: Terragrunt Apply
         id: tgapply
         if: ${{ inputs.mode == 'apply' }}
-        run: terragrunt apply -no-color -auto-approve tgplan
+        run: terragrunt apply -no-color -auto-approve "$(pwd)/tgplan"
         working-directory: ${{ inputs.working_directory }}
+
+      - name: Ensure plan files exist
+        if: ${{ inputs.mode == 'plan' }}
+        run: |
+          set -euo pipefail
+          test -f "${{ inputs.working_directory }}/tgplan"
+          test -f "${{ inputs.working_directory }}/plan.txt"
 
       - name: Upload plan
         id: upload_plan
