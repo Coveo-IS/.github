@@ -1,14 +1,14 @@
 name: Terragrunt to AWS (OIDC)
 
 run-name: >-
-  Terragrunt ${{ inputs.apply_plan && 'apply' || 'plan'}}
+  Terragrunt ${{ inputs.mode }}
   * ${{ inputs.working_directory }}
   * ${{ github.ref_name }}
 
 concurrency:
   group: >-
-    terragrunt-${{ github.workflow }}-${{ github.ref_name }}-${{ inputs.working_directory }}-${{ inputs.apply_plan && 'apply' || 'plan' }}
-  cancel-in-progress: ${{ !inputs.apply_plan }}
+    terragrunt-${{ github.workflow }}-${{ github.ref_name }}-${{ inputs.working_directory }}-${{ inputs.mode }}
+  cancel-in-progress: ${{ inputs.mode == 'plan' }}
 
 defaults:
   run:
@@ -35,11 +35,16 @@ on:
         required: false
         default: 5
         type: number
-      apply_plan:
-        type: boolean
-        default: false
+      mode:
+        type: string
+        default: "plan"
         required: false
-        description: "When true, runs terragrunt apply on the saved plan."
+        description: "Execution mode. Use 'plan' to generate a plan artifact, or 'apply' to apply a previously generated plan artifact."
+      plan_artifact_url:
+        type: string
+        default: ""
+        required: false
+        description: "Artifact URL produced by a prior plan run. Required when mode='apply'."
     outputs:
       terra_plan_artifact_url:
         description: "Result of `terragrunt plan`"
@@ -54,12 +59,40 @@ jobs:
     permissions:
       id-token: write # Required for OIDC
       contents: read
+      actions: read
 
     outputs:
       plan_artifact_url: ${{ steps.upload_plan.outputs.artifact-url }}
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 #v4-ish
+
+      - name: Validate inputs
+        run: |
+          set -euo pipefail
+
+          mode="${{ inputs.mode }}"
+          plan_artifact_url="${{ inputs.plan_artifact_url }}"
+
+          if [[ "$mode" != "plan" && "$mode" != "apply" ]]; then
+            echo "ERROR: mode must be either 'plan' or 'apply'."
+            exit 1
+          fi
+
+          if [[ "$mode" == "plan" && -n "$plan_artifact_url" ]]; then
+            echo "ERROR: plan_artifact_url must be empty when mode='plan'."
+            exit 1
+          fi
+
+          if [[ "$mode" == "apply" && -z "$plan_artifact_url" ]]; then
+            echo "ERROR: plan_artifact_url is required when mode='apply'."
+            exit 1
+          fi
+
+          if [[ "$mode" == "apply" && ! "$plan_artifact_url" =~ /actions/runs/[0-9]+/artifacts/[0-9]+ ]]; then
+            echo "ERROR: plan_artifact_url must match .../actions/runs/<run_id>/artifacts/<artifact_id>."
+            exit 1
+          fi
 
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c #v4-ish
@@ -118,19 +151,74 @@ jobs:
 
       - name: Terragrunt Plan
         id: tgplan
+        if: ${{ inputs.mode == 'plan' }}
         run: |
           set -euo pipefail
           terragrunt plan -no-color -out=tgplan 2>&1 | tee plan.txt
         working-directory: ${{ inputs.working_directory }}
 
+      - name: Parse plan artifact URL
+        if: ${{ inputs.mode == 'apply' }}
+        id: parse_plan_artifact_url
+        run: |
+          set -euo pipefail
+          url="${{ inputs.plan_artifact_url }}"
+
+          run_id="$(echo "$url" | sed -nE 's#.*/actions/runs/([0-9]+)/artifacts/[0-9]+/?$#\1#p')"
+          artifact_id="$(echo "$url" | sed -nE 's#.*/actions/runs/[0-9]+/artifacts/([0-9]+)/?$#\1#p')"
+
+          if [[ -z "$run_id" || -z "$artifact_id" ]]; then
+            echo "ERROR: failed to parse run_id/artifact_id from plan_artifact_url: $url"
+            exit 1
+          fi
+
+          {
+            echo "run_id=$run_id"
+            echo "artifact_id=$artifact_id"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download plan artifact
+        if: ${{ inputs.mode == 'apply' }}
+        uses: actions/download-artifact@v8
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.parse_plan_artifact_url.outputs.run_id }}
+          artifact-ids: ${{ steps.parse_plan_artifact_url.outputs.artifact_id }}
+          path: ${{ inputs.working_directory }}
+
+      - name: Normalize downloaded plan path
+        if: ${{ inputs.mode == 'apply' }}
+        run: |
+          set -euo pipefail
+          wd="${{ inputs.working_directory }}"
+
+          if [[ -f "$wd/tgplan" ]]; then
+            exit 0
+          fi
+
+          if [[ -f "$wd/tgplan/tgplan" ]]; then
+            mv "$wd/tgplan/tgplan" "$wd/tgplan"
+            exit 0
+          fi
+
+          found_tgplan="$(find "$wd" -maxdepth 3 -type f -name tgplan | head -n 1 || true)"
+          if [[ -z "$found_tgplan" ]]; then
+            echo "ERROR: could not locate downloaded tgplan in $wd."
+            exit 1
+          fi
+
+          cp "$found_tgplan" "$wd/tgplan"
+
       - name: Terragrunt Apply
         id: tgapply
-        if: ${{ inputs.apply_plan }}
+        if: ${{ inputs.mode == 'apply' }}
         run: terragrunt apply -no-color -auto-approve tgplan
         working-directory: ${{ inputs.working_directory }}
 
       - name: Upload plan
         id: upload_plan
+        if: ${{ inputs.mode == 'plan' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           retention-days: 1 # Derivative pipelines are responsible for maintaining the artifact.
