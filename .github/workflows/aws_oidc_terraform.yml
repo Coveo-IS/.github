@@ -115,8 +115,8 @@ jobs:
           # Download checksums + signature
           curl -fsSL -o /tmp/tofu_SHA256SUMS \
             "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_SHA256SUMS"
-          curl -fsSL -o /tmp/tofu_SHA256SUMS.sig \
-            "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_SHA256SUMS.sig"
+          curl -fsSL -o /tmp/tofu_SHA256SUMS.gpgsig \
+            "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_SHA256SUMS.gpgsig"
 
           # Import OpenTofu's release key (key ID is stable across versions)
           mkdir -p "$HOME/.gnupg"
@@ -129,7 +129,7 @@ jobs:
           gpg --keyserver keyserver.ubuntu.com --recv-keys 0C0AF313E5FD9F80
 
           # Verify signature, then verify binary
-          gpg --verify /tmp/tofu_SHA256SUMS.sig /tmp/tofu_SHA256SUMS
+          gpg --verify /tmp/tofu_SHA256SUMS.gpgsig /tmp/tofu_SHA256SUMS
           (cd /tmp && grep "tofu_${TOFU_VERSION}_linux_amd64.zip" /tmp/tofu_SHA256SUMS | sha256sum -c)
 
           unzip -o "/tmp/tofu_${TOFU_VERSION}_linux_amd64.zip" -d /tmp/tofu
