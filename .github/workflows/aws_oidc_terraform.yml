@@ -119,7 +119,14 @@ jobs:
             "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_SHA256SUMS.sig"
 
           # Import OpenTofu's release key (key ID is stable across versions)
-          gpg --keyserver keyserver.ubuntu.com --recv-keys 0x2FE9B68F9B4E2B37
+          mkdir -p "$HOME/.gnupg"
+          chmod 700 "$HOME/.gnupg"
+          {
+            echo "disable-ipv6"
+            echo "keyserver hkps://keyserver.ubuntu.com"
+          } >> "$HOME/.gnupg/dirmngr.conf"
+          gpgconf --kill dirmngr || true
+          gpg --keyserver keyserver.ubuntu.com --recv-keys 0C0AF313E5FD9F80
 
           # Verify signature, then verify binary
           gpg --verify /tmp/tofu_SHA256SUMS.sig /tmp/tofu_SHA256SUMS
